@@ -1,0 +1,219 @@
+#!/bin/bash 
+
+# setting defaults
+skeleton="/etc/skel"
+shell="/bin/bash"
+homedir=""
+name=""
+username=""
+noexec=""
+
+#execute the command only for admin
+if [ $USER != "root" ]
+then
+	echo -e "ERROR: You must be administrator to execute 'localuser' "
+	exit
+fi
+
+if [ $# -eq  0 ] 
+then
+        echo -e "Usage : try "localuser help" "
+        exit
+else
+	case $1 in
+		"help" )
+				if [ -n "$2" ]
+				then
+					case "$2" in
+					"help") echo -e "usage: localuser help command\nwhere command is:\n\thelp\n\tadd\n\tdelete"
+						exit
+						;;
+					"add")  echo -e "usage: localuser add login [options]\nwhere options\n\t--home dir        - set the home directory to 'dir'\n\t--name fullname   - set the username to 'fullname'
+\n\t--shell sh        - set user shell to 'sh'\n\t--skel dir        - use skeleton directory 'dir' to build user home\n\t--noexec          - do not execute the commands, print them "
+						exit
+						;;
+					"delete") echo -e "$2 command Not yet implemented"
+						exit
+						;; 
+					*) echo "Unknown Command: $2"
+						exit
+						;;
+					esac
+				else
+					echo -e "usage: localuser help command\nwhere command is:\n\thelp\n\tadd\n\tdelete"
+					exit
+				fi
+			exit
+			;;
+
+		"add" )
+			if [ $# -eq 1 ]
+			then 
+				echo -e "add: user name required as an argument \n try 'localuser help add' "
+				exit
+			elif [ $# -eq 2 ] 
+			then
+				homedir="/home/$2"
+				username="$2"
+
+			elif [ $# -gt 2 ]
+			then
+				homedir=$"/home/$2"
+				username="$2"
+				shift 2
+				while true
+				do
+					case $1 in
+					"--home" )
+						if [ -n "$2" ]
+						then
+							homedir="/home/$2"
+							shift 2
+							continue
+						else
+							echo -e "ERROR: Missing argument option \n usage: --home homedir"
+							exit
+						fi
+					;;
+					"--name" )
+						if [ -n "$2" ]
+						then
+							name="$2"
+							shift 2
+							continue
+						else
+							echo -e "ERROR: Missing argument option \n usage: --name FullName"
+							exit
+						fi
+						;;
+					"--shell" )
+						if [ -n "$2" ]
+						then
+							shell="$2"
+							shift 2
+							continue
+						else
+							echo -e "ERROR: Missing argument option \n usage: --shell sh"
+							exit
+						fi
+						;;
+					"--skel" )
+						if [ -n "$2" ]
+						then
+							skeleton="$2"
+							shift 2
+							continue
+						else
+							echo -e "ERROR: Missing argument option \n usage: --skel dir"
+							exit
+						fi
+						;;
+					"--noexec" )
+						noexec=$1
+						shift
+						continue
+						;;
+					-?* )
+						echo -e "$2: Unknown option"
+						exit
+					;;
+					* )
+						break
+					esac
+				done
+			fi
+			;;
+		"delete" )
+			echo -e "$1:Not yet implimented"
+			exit
+			;;
+		* )
+			echo -e "Error: $1: unknown command"
+			exit
+			;;
+		esac	
+fi
+
+#converting seconds to days since 1/1/1970
+days_since_epoch=$(( $(date --utc --date "" +%s) / 86400 ))
+
+#Avialable ID's range
+uid_min=$(grep ^UID_MIN /etc/login.defs | cut -c12-15)
+gid_min=$(grep ^GID_MIN /etc/login.defs | cut -c12-15)
+
+uid_max=$(grep ^UID_MAX /etc/login.defs | cut -c11-15)
+gid_max=$(grep ^GID_MAX /etc/login.defs | cut -c11-15)
+
+#finding the of UID GID, by picking the minimum number in the range  
+for i in $(seq $uid_min $uid_max)
+do
+	uid=$i
+	grep ":$uid:" /etc/passwd > /dev/null
+	if [ $? -eq 0 ]
+	then
+		continue
+	else
+		break
+	fi
+done
+
+for i in $(seq $gid_min $gid_max)
+do
+	gid=$i
+	grep ":$uid:" /etc/passwd > /dev/null
+	if [ $? -eq 0 ]
+	then
+		continue
+	else
+		break
+	fi
+done
+
+#validate user
+getent passwd $username > /dev/null
+if [ $? -eq 0 ]
+then
+	echo -e "user already exists"
+	exit
+fi
+
+
+#validating the directories
+if  test -d "$homedir" 
+then
+	echo -e "ERROR: "$homedir" directory already exist"
+	exit
+fi
+
+if  ! test -d $skeleton
+then
+	echo -e "ERROR: "$skeleton" directory not found"
+	exit
+fi
+
+
+#echo $uid  $gid $username $name $homedir $skeleton $shell $days_since_epoch 
+if [ $noexec == "--noexec" ] #not executing commands, but printing them
+then
+echo "
+echo "$username:x:$uid:$gid:$name:$homedir:$shell" >> /etc/passwd
+echo "$username:!:$days_since_epoch:0:99999:7:::" >> /etc/shadow  
+echo "$username:x:$gid:" >> /etc/group 
+echo "$username:!::" >> /etc/gshadow 
+cp -R $skeleton $homedir
+chown -R $username:$username $homedir
+"
+exit
+fi
+
+echo "$username:x:$uid:$gid:$name:$homedir:$shell" >> /etc/passwd  #login:x:UID:GID:FullName:homedir:shell
+echo "$username:!:$days_since_epoch:0:99999:7:::" >> /etc/shadow  #login:!:days_since_epoch:0:99999:7:::
+echo "$username:x:$gid:" >> /etc/group #groupname:x:GID:
+echo "$username:!::" >> /etc/gshadow #groupname:!::
+cp -R $skeleton $homedir
+chown -R $username:$username $homedir
+
+echo -e "user $username added"
+
+
+
